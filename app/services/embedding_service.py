@@ -14,5 +14,5 @@ class EmbeddingService:
 
         return response.data[0].embedding
     '''
-        return [0.0] * 1536
+        return [0.0] * 768
         

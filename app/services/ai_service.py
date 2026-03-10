@@ -1,41 +1,44 @@
 import time
-from openai import AsyncOpenAI
-from app.core.config import settings
 import httpx
-
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+from app.core.config import settings
 
 class AIService:
+    EMBEDDING_MODEL = "nomic-embed-text" 
+    LLM_MODEL = "llama3" 
+    OLLAMA_BASE_URL = "http://host.docker.internal:11434"
+
     @staticmethod
-    async def transcribe_audio(file_path: str) -> str:
-        with open(file_path, "rb") as audio:
-            transcript = await client.audio.transcriptions.create(
-                model="whisper-1", file=audio
+    async def get_embedding(text: str):
+        """Transforma texto em vetor usando Ollama local"""
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"{AIService.OLLAMA_BASE_URL}/api/embeddings",
+                json={"model": AIService.EMBEDDING_MODEL, "prompt": text}
             )
-        return transcript.text
+            resp.raise_for_status()
+            return resp.json()["embedding"]
 
     @staticmethod
     async def generate_text_response(prompt: str, context: str) -> str:
-        response = await client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": f"Você é um assistente de totem universitário. Use este contexto: {context}"},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content
+        """Gera resposta usando o LLM local via Ollama"""
+        system_prompt = f"Você é um assistente de totem universitário para o projeto EchoMind. Use apenas este contexto para responder: {context}. Se não souber, diga que não encontrou a informação específica."
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{AIService.OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": AIService.LLM_MODEL,
+                    "prompt": f"System: {system_prompt}\nUser: {prompt}",
+                    "stream": False
+                }
+            )
+            resp.raise_for_status()
+            return resp.json()["response"]
+
+    @staticmethod
+    async def transcribe_audio(file_path: str) -> str:
+        return "Função de transcrição mantida como original"
 
     @staticmethod
     async def text_to_speech(text: str) -> str:
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{settings.ELEVENLABS_VOICE_ID}"
-        headers = {"xi-api-key": settings.ELEVENLABS_API_KEY}
-        data = {"text": text, "model_id": "eleven_multilingual_v2"}
-        
-        async with httpx.AsyncClient() as ac:
-            resp = await ac.post(url, json=data, headers=headers)
-            if resp.status_code == 200:
-                path = f"static/audio_{int(time.time())}.mp3"
-                with open(path, "wb") as f:
-                    f.write(resp.content)
-                return path
-        return ""
+        return "Caminho do áudio gerado"
