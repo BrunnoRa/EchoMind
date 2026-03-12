@@ -13,6 +13,14 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # CRÍTICO: healthcheck garante que o Postgres está PRONTO (não só iniciado)
+    # antes da API tentar conectar. Sem isso, a API falha no startup.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   api:
     build: .
@@ -23,11 +31,13 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
+      db:
+        # Aguarda o healthcheck do banco passar antes de subir a API
+        condition: service_healthy
     volumes:
       - .:/app
       - ./static:/app/static
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    
+
 volumes:
   postgres_data:

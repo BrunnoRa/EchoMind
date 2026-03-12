@@ -1,41 +1,65 @@
+import os
 import time
-from openai import AsyncOpenAI
-from app.core.config import settings
-import httpx
+import asyncio
+import edge_tts
+from faster_whisper import WhisperModel
 
-client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+_whisper_model: WhisperModel | None = None
+
+
+def get_whisper_model() -> WhisperModel:
+    global _whisper_model
+    if _whisper_model is None:
+        print("🎙️  Carregando modelo Whisper (base)... (apenas na primeira vez)")
+        _whisper_model = WhisperModel(
+            "base",
+            device="cpu",
+            compute_type="int8"  # otimizado para CPU
+        )
+        print("✅ Whisper carregado.")
+    return _whisper_model
+
 
 class AIService:
-    @staticmethod
-    async def transcribe_audio(file_path: str) -> str:
-        with open(file_path, "rb") as audio:
-            transcript = await client.audio.transcriptions.create(
-                model="whisper-1", file=audio
-            )
-        return transcript.text
 
     @staticmethod
-    async def generate_text_response(prompt: str, context: str) -> str:
-        response = await client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": f"Você é um assistente de totem universitário. Use este contexto: {context}"},
-                {"role": "user", "content": prompt}
-            ]
-        )
-        return response.choices[0].message.content
+    async def transcribe_audio(file_path: str) -> str:
+        """
+        Transcreve áudio para texto usando Whisper local (faster-whisper).
+        Roda em thread separada para não bloquear o event loop do FastAPI.
+        """
+        def _transcribe():
+            model = get_whisper_model()
+            segments, info = model.transcribe(
+                file_path,
+                language="pt",          # força português para melhor precisão
+                beam_size=5,
+                vad_filter=True,        # remove silêncio automaticamente
+                vad_parameters=dict(min_silence_duration_ms=500)
+            )
+            return " ".join(segment.text.strip() for segment in segments)
+
+        # Executa em thread para não bloquear o async loop
+        loop = asyncio.get_event_loop()
+        text = await loop.run_in_executor(None, _transcribe)
+        return text.strip()
 
     @staticmethod
     async def text_to_speech(text: str) -> str:
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{settings.ELEVENLABS_VOICE_ID}"
-        headers = {"xi-api-key": settings.ELEVENLABS_API_KEY}
-        data = {"text": text, "model_id": "eleven_multilingual_v2"}
-        
-        async with httpx.AsyncClient() as ac:
-            resp = await ac.post(url, json=data, headers=headers)
-            if resp.status_code == 200:
-                path = f"static/audio_{int(time.time())}.mp3"
-                with open(path, "wb") as f:
-                    f.write(resp.content)
-                return path
-        return ""
+        """
+        Converte texto em áudio usando Edge TTS (Microsoft).
+        Gratuito, sem chave de API, voz pt-BR de alta qualidade.
+        Vozes disponíveis PT-BR:
+          - pt-BR-FranciscaNeural  (feminina, natural)
+          - pt-BR-AntonioNeural    (masculina, natural)
+        """
+        os.makedirs("static", exist_ok=True)
+        output_path = f"static/audio_{int(time.time())}.mp3"
+
+        communicate = edge_tts.Communicate(
+            text=text,
+            voice="pt-BR-FranciscaNeural"
+        )
+        await communicate.save(output_path)
+
+        return output_path

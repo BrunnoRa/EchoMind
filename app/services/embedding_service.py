@@ -1,21 +1,21 @@
 from langchain_ollama import OllamaEmbeddings
 
+# 'host.docker.internal' permite que o container Docker alcance o Ollama
+OLLAMA_BASE_URL = "http://host.docker.internal:11434"
+EMBEDDING_MODEL = "mxbai-embed-large"  # Gera vetores de 1024 dimensões
+
+
 class EmbeddingService:
+
     @staticmethod
-    async def get_embedding(text: str):
+    async def get_embedding(text: str) -> list[float]:
         """
-        Gera embeddings localmente usando o Ollama.
-        
-        Configurações:
-        - model: mxbai-embed-large (o mesmo usado no vídeo do Tech With Tim)
-        - base_url: aponta para o host do Docker para alcançar o Windows
+        Gera um embedding vetorial usando o Ollama local.
+        Requer que o modelo 'mxbai-embed-large' esteja baixado:
+        $ ollama pull mxbai-embed-large
         """
         embeddings = OllamaEmbeddings(
-            model="mxbai-embed-large",
-            # 'host.docker.internal' é necessário para que o container Docker 
-            # fale com o serviço do Ollama rodando no seu Windows.
-            base_url="http://host.docker.internal:11434"
+            model=EMBEDDING_MODEL,
+            base_url=OLLAMA_BASE_URL
         )
-        
-        # Gera o vetor numérico real em vez de retornar apenas zeros
         return await embeddings.aembed_query(text)
